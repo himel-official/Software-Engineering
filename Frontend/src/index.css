@@ -1,0 +1,17 @@
+@import "tailwindcss";
+.leaflet-container {
+  position: relative;
+}
+
+.leaflet-container .leaflet-pane {
+  pointer-events: auto; /* keep map interactive */
+}
+
+.leaflet-top,
+.leaflet-bottom {
+  pointer-events: none; /* leaflet controls will not block clicks */
+}
+
+#locate-btn {
+  pointer-events: auto !important; /* ensure button receives clicks */
+}
