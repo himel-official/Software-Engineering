@@ -1,5 +1,6 @@
 const { NID_RE } = require("./config");
 
+// Usernames do not have to be unique. Only the email and the NID are unique per account.
 const USERNAME_RE = /^[a-zA-Z0-9_]{3,20}$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 

@@ -25,11 +25,6 @@ export function UnreadProvider({ children }) {
     return () => clearInterval(t);
   }, [enabled, refresh]);
 
-  // Also show the number in the browser tab title
-  useEffect(() => {
-    document.title = count > 0 ? `(${count}) CrimeMap` : "CrimeMap - report and see crime in your area";
-  }, [count]);
-
   return <UnreadContext.Provider value={{ count, refresh }}>{children}</UnreadContext.Provider>;
 }
 

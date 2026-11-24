@@ -29,7 +29,7 @@ export default function AdminReports() {
       {reports && (
         <div className="table-wrap">
           <table>
-            <thead><tr><th>ID</th><th>Type</th><th>Reporter</th><th>When</th><th>Description</th><th>Status</th><th></th></tr></thead>
+            <thead><tr><th>ID</th><th>Type</th><th>Reporter</th><th>When</th><th>Description</th><th>Files</th><th>Status</th><th></th></tr></thead>
             <tbody>
               {reports.map((r) => (
                 <tr key={r.id}>
@@ -38,6 +38,7 @@ export default function AdminReports() {
                   <td><Link to={`/admin/users/${r.user_id}`}>{r.username}</Link></td>
                   <td>{fmtTime(r.occurred_at)}</td>
                   <td className="wrap">{r.description}</td>
+                  <td>{r.files || "-"}</td>
                   <td>{r.status}</td>
                   <td>
                     {r.status === "hidden" ? (

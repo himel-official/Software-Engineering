@@ -6,27 +6,28 @@ const router = express.Router();
 router.use(requireLogin); // profiles are visible to logged-in people only
 
 // An investigator edits the public text on their own profile
-router.put("/me", requireRole("investigator"), (req, res) => {
+router.put("/me", requireRole("investigator"), async (req, res) => {
   const bio = String((req.body && req.body.bio) || "").trim();
   if (bio.length > 500) return res.status(400).json({ error: "Bio can be at most 500 characters" });
-  db.prepare("UPDATE investigator_profiles SET bio = ? WHERE user_id = ?").run(bio, req.user.id);
+  await db.run("UPDATE investigator_profiles SET bio = ? WHERE user_id = ?", [bio, req.user.id]);
   res.json({ ok: true });
 });
 
 // Public investigator profile. Private details (real name, organization, NID, ID card) are NEVER included.
-router.get("/:username", (req, res) => {
-  const row = db
-    .prepare(
+// Looked up by account id, because usernames are not unique.
+router.get("/:id", async (req, res) => {
+  const row = await db.get(
       `SELECT u.id, u.username, u.created_at, ip.job_type, ip.status, ip.verified_at, ip.bio
        FROM users u JOIN investigator_profiles ip ON ip.user_id = u.id
-       WHERE u.username = ? AND u.role = 'investigator'`
-    )
-    .get(String(req.params.username));
+       WHERE u.id = ? AND u.role = 'investigator'`,
+    [Number(req.params.id) || 0]
+  );
   if (!row) return res.status(404).json({ error: "Investigator not found" });
 
-  const conversations = db.prepare("SELECT COUNT(*) AS n FROM chat_threads WHERE investigator_id = ?").get(row.id).n;
+  const conversations = (await db.get("SELECT COUNT(*) AS n FROM chat_threads WHERE investigator_id = ?", [row.id])).n;
   res.json({
     profile: {
+      id: row.id,
       username: row.username,
       jobType: row.job_type,
       status: row.status,

@@ -5,7 +5,7 @@ import { useAuth } from "../AuthContext";
 export default function Login() {
   const { login } = useAuth();
   const navigate = useNavigate();
-  const [identifier, setIdentifier] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -15,7 +15,7 @@ export default function Login() {
     setError("");
     setBusy(true);
     try {
-      const u = await login(identifier, password);
+      const u = await login(email, password);
       navigate(u.role === "admin" ? "/admin" : "/");
     } catch (err) {
       setError(err.message);
@@ -26,10 +26,10 @@ export default function Login() {
 
   return (
     <div className="page narrow">
-      <h1>Login</h1>
+      <h1>Login to SafeVoice</h1>
       <form onSubmit={submit} className="stack card">
         {error && <p className="error">{error}</p>}
-        <input placeholder="Username or email" value={identifier} onChange={(e) => setIdentifier(e.target.value)} autoComplete="username" />
+        <input type="email" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" required />
         <input type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" />
         <button disabled={busy}>{busy ? "Logging in..." : "Login"}</button>
         <p>No account? <Link to="/register">Register</Link></p>

@@ -5,6 +5,7 @@ import App from "./App.jsx";
 import { AuthProvider } from "./AuthContext.jsx";
 import { MetaProvider } from "./MetaContext.jsx";
 import { UnreadProvider } from "./UnreadContext.jsx";
+import { NotificationProvider } from "./NotificationContext.jsx";
 import "./index.css";
 
 createRoot(document.getElementById("root")).render(
@@ -13,7 +14,9 @@ createRoot(document.getElementById("root")).render(
       <AuthProvider>
         <MetaProvider>
           <UnreadProvider>
-            <App />
+            <NotificationProvider>
+              <App />
+            </NotificationProvider>
           </UnreadProvider>
         </MetaProvider>
       </AuthProvider>

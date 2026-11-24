@@ -7,7 +7,7 @@ export default function ReportCrime() {
   return (
     <div className="page">
       <h1>Report a crime</h1>
-      <p className="muted">Your name is never shown. Only the crime type, time, place and description appear on the map.</p>
+      <p className="muted">Your name is never shown. The crime type, time, place, description and any files you attach appear publicly. People within 5 km of the place are alerted.</p>
       <div className="card">
         <ReportForm
           submitLabel="Submit report"
