@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import CrimeMap from "../components/CrimeMap";
 import ContactBox from "../components/ContactBox";
+import Attachments from "../components/Attachments";
 import { useAuth } from "../AuthContext";
 import { useMeta } from "../MetaContext";
 import { api } from "../api";
@@ -40,9 +41,10 @@ export default function MapPage() {
         flyTo={fly}
         renderPopup={(r, t) => (
           <div className="popup">
-            <strong style={{ color: t.color }}>{t.label}</strong>
+            <strong className="red-text">{t.label}</strong>
             <div className="muted">Happened {fmtTime(r.occurred_at)} ({timeAgo(r.occurred_at)})</div>
             <p>{r.description}</p>
+            <Attachments files={r.files} urlFor={(f) => `/api/reports/files/${f.id}`} compact />
             <ContactBox report={r} />
           </div>
         )}

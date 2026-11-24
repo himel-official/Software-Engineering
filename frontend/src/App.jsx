@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Routes, Route, Link, NavLink, Navigate } from "react-router-dom";
 import { useAuth } from "./AuthContext";
 import Badge from "./components/Badge";
@@ -5,6 +6,9 @@ import Home from "./pages/Home";
 import MapPage from "./pages/MapPage";
 import InvestigatorProfile from "./pages/InvestigatorProfile";
 import { useUnread } from "./UnreadContext";
+import { useNotifications } from "./NotificationContext";
+import LocationTracker from "./components/LocationTracker";
+import Notifications from "./pages/Notifications";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import RegisterInvestigator from "./pages/RegisterInvestigator";
@@ -30,24 +34,33 @@ function Protected({ roles, children }) {
 export default function App() {
   const { user, logout } = useAuth();
   const { count: unread } = useUnread();
+  const { unread: alerts } = useNotifications();
+
+  // Browser tab title shows how many unread messages + crime alerts there are
+  useEffect(() => {
+    const n = unread + alerts;
+    document.title = n > 0 ? `(${n}) SafeVoice` : "SafeVoice - report and see crime in your area";
+  }, [unread, alerts]);
 
   return (
     <>
+      <LocationTracker />
       <header className="topbar">
-        <Link to="/" className="brand">🗺️ CrimeMap</Link>
+        <Link to="/" className="brand">🛡️ SafeVoice</Link>
         <nav>
           <NavLink to="/" end>Home</NavLink>
           <NavLink to="/map">Full map</NavLink>
-          {user?.role === "user" && (
+          {(user?.role === "user" || user?.role === "investigator") && (
             <>
               <NavLink to="/report">Report a crime</NavLink>
               <NavLink to="/my-reports">My reports</NavLink>
+              <NavLink to="/messages">
+                Messages{unread > 0 && <span className="unread" title={`${unread} unread`}>{unread > 99 ? "99+" : unread}</span>}
+              </NavLink>
+              <NavLink to="/notifications">
+                🔔 Alerts{alerts > 0 && <span className="unread" title={`${alerts} new crime alerts near you`}>{alerts > 99 ? "99+" : alerts}</span>}
+              </NavLink>
             </>
-          )}
-          {(user?.role === "user" || user?.role === "investigator") && (
-            <NavLink to="/messages">
-              Messages{unread > 0 && <span className="unread" title={`${unread} unread`}>{unread > 99 ? "99+" : unread}</span>}
-            </NavLink>
           )}
           {user?.role === "admin" && <NavLink to="/admin">Admin</NavLink>}
         </nav>
@@ -55,7 +68,7 @@ export default function App() {
           {user ? (
             <>
               <span className="who">
-                {user.role === "investigator" ? <Link to={`/investigators/${user.username}`} className="me-link">{user.username}</Link> : user.username}
+                {user.role === "investigator" ? <Link to={`/investigators/${user.id}`} className="me-link">{user.username}</Link> : user.username}
                 {user.role === "investigator" && user.investigator && <Badge status={user.investigator.status} jobType={user.investigator.jobType} />}
                 {user.role === "admin" && <span className="badge admin">Admin</span>}
               </span>
@@ -73,12 +86,13 @@ export default function App() {
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/map" element={<MapPage />} />
-        <Route path="/investigators/:username" element={<Protected roles={["user", "investigator", "admin"]}><InvestigatorProfile /></Protected>} />
+        <Route path="/investigators/:id" element={<Protected roles={["user", "investigator", "admin"]}><InvestigatorProfile /></Protected>} />
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
         <Route path="/register/investigator" element={<RegisterInvestigator />} />
-        <Route path="/report" element={<Protected roles={["user"]}><ReportCrime /></Protected>} />
-        <Route path="/my-reports" element={<Protected roles={["user"]}><MyReports /></Protected>} />
+        <Route path="/report" element={<Protected roles={["user", "investigator"]}><ReportCrime /></Protected>} />
+        <Route path="/my-reports" element={<Protected roles={["user", "investigator"]}><MyReports /></Protected>} />
+        <Route path="/notifications" element={<Protected roles={["user", "investigator"]}><Notifications /></Protected>} />
         <Route path="/messages" element={<Protected roles={["user", "investigator"]}><Messages /></Protected>} />
         <Route path="/admin" element={<Protected roles={["admin"]}><AdminDashboard /></Protected>} />
         <Route path="/admin/users" element={<Protected roles={["admin"]}><AdminUsers /></Protected>} />

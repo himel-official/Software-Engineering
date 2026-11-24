@@ -6,22 +6,22 @@ import { api } from "../api";
 import { fmtTime } from "../utils";
 
 export default function InvestigatorProfile() {
-  const { username } = useParams();
+  const { id } = useParams();
   const { user } = useAuth();
   const [p, setP] = useState(null);
   const [bio, setBio] = useState("");
   const [error, setError] = useState("");
   const [msg, setMsg] = useState("");
 
-  const isMe = user?.role === "investigator" && user.username.toLowerCase() === username.toLowerCase();
+  const isMe = user?.role === "investigator" && String(user.id) === String(id);
 
   useEffect(() => {
     setP(null);
     setError("");
-    api(`/investigators/${encodeURIComponent(username)}`)
+    api(`/investigators/${encodeURIComponent(id)}`)
       .then((d) => { setP(d.profile); setBio(d.profile.bio || ""); })
       .catch((e) => setError(e.message));
-  }, [username]);
+  }, [id]);
 
   async function save(e) {
     e.preventDefault();

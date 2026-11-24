@@ -43,7 +43,7 @@ export default function RegisterInvestigator() {
       <form onSubmit={submit} className="stack card">
         {error && <p className="error">{error}</p>}
         <label>Username <input name="username" value={form.username} onChange={set} /></label>
-        <label>Email <input name="email" type="email" value={form.email} onChange={set} /></label>
+        <label>Email <small>(you log in with it)</small> <input name="email" type="email" value={form.email} onChange={set} /></label>
         <label>Password <small>(at least 10 characters)</small>
           <input name="password" type="password" value={form.password} onChange={set} autoComplete="new-password" />
         </label>
@@ -71,7 +71,10 @@ export default function RegisterInvestigator() {
           <input type="file" accept="image/jpeg,image/png,application/pdf" onChange={(e) => setFile(e.target.files[0] || null)} />
         </label>
 
-        <div className="note">Your NID and ID card are stored encrypted and can only be viewed by administrators.</div>
+        <div className="note">
+          Your NID and ID card are stored encrypted and can only be viewed by administrators. While SafeVoice is open, your device location is sent to the site
+          (latest point only) so you can get alerts about crimes within 5 km; administrators can see it and every look is logged.
+        </div>
         <button disabled={busy}>{busy ? "Submitting..." : "Submit for verification"}</button>
         <p><Link to="/register">Register as a regular user instead</Link></p>
       </form>

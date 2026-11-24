@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import ReportForm from "../components/ReportForm";
+import Attachments from "../components/Attachments";
 import { useMeta } from "../MetaContext";
 import { api } from "../api";
 import { fmtTime } from "../utils";
@@ -27,7 +28,7 @@ export default function MyReports() {
   }
 
   const label = (key) => meta?.crimeTypes.find((t) => t.key === key)?.label || key;
-  const color = (key) => meta?.crimeTypes.find((t) => t.key === key)?.color || "#999";
+  const color = (key) => meta?.crimeTypes.find((t) => t.key === key)?.color || "#dc2626";
 
   return (
     <div className="page">
@@ -60,6 +61,7 @@ export default function MyReports() {
               </div>
               <div className="muted">Happened {fmtTime(r.occurred_at)}</div>
               <p>{r.description}</p>
+              <Attachments files={r.files} urlFor={(f) => `/api/reports/files/${f.id}`} />
               {r.investigators_contacted > 0 && (
                 <p className="note">{r.investigators_contacted} investigator(s) contacted you about this report. See <Link to="/messages">Messages</Link>.</p>
               )}

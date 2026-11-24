@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import CrimeMap from "../components/CrimeMap";
 import ContactBox from "../components/ContactBox";
+import Attachments from "../components/Attachments";
 import { useAuth } from "../AuthContext";
 import { useMeta } from "../MetaContext";
+import { useNotifications } from "../NotificationContext";
 import { api } from "../api";
-import { fmtTime, timeAgo, distanceKm } from "../utils";
+import { fmtTime, timeAgo, distanceKm, fmtKm } from "../utils";
 
 const PERIODS = [
   { key: "all", label: "All time", days: null },
@@ -13,23 +15,28 @@ const PERIODS = [
   { key: "7", label: "7 days", days: 7 },
 ];
 const NEAR_KM = 5;
-const PAGE = 10;
+const PAGE = 8;
+const fileUrl = (f) => `/api/reports/files/${f.id}`;
 
 export default function Home() {
   const { user } = useAuth();
   const meta = useMeta();
+  const { unread: alerts } = useNotifications();
+  const [params, setParams] = useSearchParams();
   const mapRef = useRef(null);
+  const canReport = user?.role === "user" || user?.role === "investigator";
 
   const [reports, setReports] = useState([]);
   const [error, setError] = useState("");
-  const [me, setMe] = useState(null); // visitor's current location {lat, lng, accuracy}
+  const [me, setMe] = useState(null); // visitor's current location {lat, lng}
   const [geoMsg, setGeoMsg] = useState("");
   const [fly, setFly] = useState(null);
   const [focusId, setFocusId] = useState(null);
-  const [hidden, setHidden] = useState(new Set()); // crime types switched off by clicking them
+  const [hidden, setHidden] = useState(new Set()); // crime types switched off
   const [period, setPeriod] = useState("all");
   const [scope, setScope] = useState("all"); // "all" or "near"
   const [sort, setSort] = useState("new");
+  const [search, setSearch] = useState("");
   const [shown, setShown] = useState(PAGE);
 
   // Public posts (reload when login state changes: verified investigators get exact locations)
@@ -42,21 +49,41 @@ export default function Home() {
     setGeoMsg("Finding your location...");
     navigator.geolocation.getCurrentPosition(
       (p) => {
-        const here = { lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy };
+        const here = { lat: p.coords.latitude, lng: p.coords.longitude };
         setMe(here);
         setFly([here.lat, here.lng]);
         setGeoMsg("");
       },
-      () => setGeoMsg("Location is blocked. Allow location access in your browser to see where you are on the map."),
+      () => setGeoMsg("Location is blocked. Allow location access in your browser to see where you are and what is near you."),
       { enableHighAccuracy: true, timeout: 10000 }
     );
   }
   useEffect(() => { locate(); }, []); // ask for location once when the page opens
 
+  // Coming from an alert ("/?report=12"): jump to that crime on the map
+  const wanted = Number(params.get("report")) || null;
+  useEffect(() => {
+    if (!wanted) return;
+    const r = reports.find((x) => x.id === wanted);
+    if (!r) return;
+    setFocusId(r.id);
+    setFly([r.lat, r.lng]);
+    mapRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    setParams({}, { replace: true });
+  }, [wanted, reports, setParams]);
+
   // Add distance from me to every post
   const posts = useMemo(() => reports.map((r) => ({ ...r, dist: me ? distanceKm(me, r) : null })), [reports, me]);
 
-  // ----- statistics -----
+  // ----- headline numbers (never change with the filters) -----
+  const tiles = useMemo(() => {
+    const week = posts.filter((r) => Date.now() - new Date(r.occurred_at).getTime() <= 7 * 86400000).length;
+    const near = me ? posts.filter((r) => r.dist <= NEAR_KM).length : null;
+    const serious = posts.filter((r) => meta?.crimeTypes.find((t) => t.key === r.type)?.permanent).length;
+    return { total: posts.length, week, near, serious };
+  }, [posts, me, meta]);
+
+  // ----- statistics list (period + area) -----
   const statPosts = useMemo(() => {
     const days = PERIODS.find((p) => p.key === period).days;
     return posts.filter((r) => {
@@ -72,17 +99,22 @@ export default function Home() {
     statPosts.forEach((r) => (counts[r.type] = (counts[r.type] || 0) + 1));
     return meta.crimeTypes.map((t) => ({ ...t, n: counts[t.key] || 0 })).sort((a, b) => b.n - a.n);
   }, [meta, statPosts]);
+  const maxN = Math.max(1, ...statRows.map((t) => t.n));
 
-  // ----- map + feed (filtered by the clicked crime types) -----
+  // ----- map + feed (filtered by switched-off crime types and the search box) -----
   const visible = useMemo(() => posts.filter((r) => !hidden.has(r.type)), [posts, hidden]);
   const feed = useMemo(() => {
-    const list = [...visible];
+    const q = search.trim().toLowerCase();
+    const list = visible.filter((r) => !q || r.description.toLowerCase().includes(q) || (typeOf(r.type)?.label || "").toLowerCase().includes(q));
     if (sort === "near" && me) list.sort((a, b) => a.dist - b.dist);
     else list.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
     return list;
-  }, [visible, sort, me]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, sort, me, search, meta]);
 
-  const typeOf = (key) => meta?.crimeTypes.find((t) => t.key === key);
+  function typeOf(key) {
+    return meta?.crimeTypes.find((t) => t.key === key);
+  }
 
   function toggle(key) {
     setHidden((prev) => {
@@ -99,113 +131,146 @@ export default function Home() {
     mapRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
   }
 
+  const popup = (r, t) => (
+    <div className="popup">
+      <strong className="red-text">{t.label}</strong>
+      <div className="muted">Happened {fmtTime(r.occurred_at)} ({timeAgo(r.occurred_at)})</div>
+      <p>{r.description}</p>
+      <Attachments files={r.files} urlFor={fileUrl} compact />
+      <ContactBox report={r} />
+    </div>
+  );
+
   return (
-    <div className="page wide">
-      <section className="hero">
+    <div className="page wide home">
+      {/* 1. Welcome banner */}
+      <section className="hero2">
         <div>
-          <h1>Crime in your area</h1>
-          <p className="muted">Reports from your community, shown without anyone's identity. Dots fade as crimes get older.</p>
+          <h1>SafeVoice</h1>
+          <p>Report crime without being identified, and see what is happening around you.</p>
         </div>
-        {!user && <Link to="/register" className="btn">Register to report a crime</Link>}
-        {user?.role === "user" && <Link to="/report" className="btn">+ Report a crime</Link>}
+        <div className="row">
+          {!user && <Link to="/register" className="btn light">Create an account</Link>}
+          {!user && <Link to="/login" className="btn ghost">Login</Link>}
+          {canReport && <Link to="/report" className="btn light">+ Report a crime</Link>}
+          <Link to="/map" className="btn ghost">Full map</Link>
+        </div>
       </section>
 
+      {canReport && alerts > 0 && (
+        <Link to="/notifications" className="alert-strip">
+          🔔 <strong>{alerts}</strong> new crime {alerts === 1 ? "alert" : "alerts"} within {NEAR_KM} km of you <span>View →</span>
+        </Link>
+      )}
       {error && <p className="error">{error}</p>}
 
-      <div className="home-grid" ref={mapRef}>
+      {/* 2. Headline numbers */}
+      <section className="tiles">
+        <div className="tile"><div className="num">{tiles.total}</div><div className="muted">Crimes reported</div></div>
+        <div className="tile"><div className="num">{tiles.week}</div><div className="muted">In the last 7 days</div></div>
+        <div className="tile">
+          <div className="num">{tiles.near ?? "–"}</div>
+          <div className="muted">{me ? `Within ${NEAR_KM} km of you` : "Near you (allow location)"}</div>
+        </div>
+        <div className="tile"><div className="num">{tiles.serious}</div><div className="muted">Serious crimes</div></div>
+      </section>
+
+      {/* 3. Map + filters */}
+      <section className="home-grid" ref={mapRef}>
         <div className="home-map">
-          <CrimeMap
-            reports={visible}
-            meta={meta}
-            me={me}
-            flyTo={fly}
-            highlightId={focusId}
-            renderPopup={(r, t) => (
-              <div className="popup">
-                <strong style={{ color: t.color }}>{t.label}</strong>
-                <div className="muted">Happened {fmtTime(r.occurred_at)} ({timeAgo(r.occurred_at)})</div>
-                <p>{r.description}</p>
-                <ContactBox report={r} />
-              </div>
-            )}
-          />
+          <CrimeMap reports={visible} meta={meta} me={me} flyTo={fly} highlightId={focusId} renderPopup={popup} />
           <button className="secondary small locate-btn" onClick={locate}>📍 My location</button>
+          <div className="map-key"><span className="dot red" /> Crime <span className="dot blue" /> You</div>
         </div>
 
-        <aside className="stats-panel card">
+        <aside className="filters card">
           <h2>Crime statistics</h2>
-
-          <div className="seg">
-            {PERIODS.map((p) => (
-              <button key={p.key} className={period === p.key ? "on" : ""} onClick={() => setPeriod(p.key)}>{p.label}</button>
-            ))}
+          <div className="filter-group">
+            <span className="filter-label">Period</span>
+            <div className="seg">
+              {PERIODS.map((p) => (
+                <button key={p.key} className={period === p.key ? "on" : ""} onClick={() => setPeriod(p.key)}>{p.label}</button>
+              ))}
+            </div>
           </div>
-          <div className="seg">
-            <button className={scope === "all" ? "on" : ""} onClick={() => setScope("all")}>Everywhere</button>
-            <button className={scope === "near" ? "on" : ""} onClick={() => setScope("near")} disabled={!me} title={me ? "" : "Allow location to use this"}>
-              Within {NEAR_KM} km of me
-            </button>
+          <div className="filter-group">
+            <span className="filter-label">Area</span>
+            <div className="seg">
+              <button className={scope === "all" ? "on" : ""} onClick={() => setScope("all")}>Everywhere</button>
+              <button className={scope === "near" ? "on" : ""} onClick={() => setScope("near")} disabled={!me} title={me ? "" : "Allow location to use this"}>
+                Within {NEAR_KM} km
+              </button>
+            </div>
           </div>
 
-          <p className="total"><strong>{statPosts.length}</strong> {statPosts.length === 1 ? "crime" : "crimes"} reported</p>
+          <p className="total"><strong>{statPosts.length}</strong> {statPosts.length === 1 ? "crime" : "crimes"} in this selection</p>
 
-          <ul className="stat-list">
+          <ul className="type-list">
             {statRows.map((t) => (
-              <li key={t.key} className={(hidden.has(t.key) ? "off " : "") + (t.n === 0 ? "zero" : "")} onClick={() => toggle(t.key)} style={{ "--c": t.color }}>
-                <strong>{t.label}:</strong> {t.n}
+              <li key={t.key} className={(hidden.has(t.key) ? "off " : "") + (t.n === 0 ? "zero" : "")} onClick={() => toggle(t.key)}>
+                <div className="row between"><span>{t.label}</span><strong>{t.n}</strong></div>
+                <div className="bar"><span style={{ width: `${(t.n / maxN) * 100}%` }} /></div>
               </li>
             ))}
           </ul>
           <p className="muted small-text">Click a crime type to hide or show it on the map and in the posts.</p>
           {geoMsg && <p className="note">{geoMsg}</p>}
         </aside>
-      </div>
+      </section>
 
-      <div className="row between posts-head">
-        <h2>Public posts <span className="muted">({feed.length})</span></h2>
-        <label className="inline">
-          Sort by
-          <select value={sort} onChange={(e) => setSort(e.target.value)}>
-            <option value="new">Newest</option>
-            <option value="near" disabled={!me}>Nearest to me</option>
-          </select>
-        </label>
-      </div>
+      {/* 4. Public posts */}
+      <section>
+        <div className="feed-head">
+          <h2>Public posts <span className="muted">({feed.length})</span></h2>
+          <div className="row">
+            <input className="search" type="search" placeholder="Search posts..." value={search} onChange={(e) => { setSearch(e.target.value); setShown(PAGE); }} />
+            <label className="inline">
+              Sort
+              <select value={sort} onChange={(e) => setSort(e.target.value)}>
+                <option value="new">Newest</option>
+                <option value="near" disabled={!me}>Nearest to me</option>
+              </select>
+            </label>
+          </div>
+        </div>
 
-      {feed.length === 0 && <p className="muted">No posts to show.</p>}
-      <div className="posts">
-        {feed.slice(0, shown).map((r) => {
-          const t = typeOf(r.type);
-          return (
-            <article key={r.id} className="post card">
-              <div className="row between">
-                <strong>
-                  <span className="dot" style={{ background: t?.color }} /> {t?.label || r.type}
-                  {t?.permanent && <span className="tag serious">Serious</span>}
-                </strong>
-                <span className="muted small-text">Posted {timeAgo(r.created_at)}</span>
-              </div>
-              <div className="muted small-text">
-                Happened {fmtTime(r.occurred_at)}
-                {r.dist !== null && ` · ${r.dist < 1 ? Math.round(r.dist * 1000) + " m" : r.dist.toFixed(1) + " km"} from you`}
-              </div>
-              <p>{r.description}</p>
-              <div className="row">
-                <button className="secondary small" onClick={() => showOnMap(r)}>📍 Show on map</button>
-              </div>
-              {user?.role === "investigator" && (
-                <details className="contact">
-                  <summary>Contact the reporter</summary>
-                  <ContactBox report={r} />
-                </details>
-              )}
-            </article>
-          );
-        })}
-      </div>
-      {feed.length > shown && (
-        <div className="center"><button className="secondary" onClick={() => setShown(shown + PAGE)}>Show more posts</button></div>
-      )}
+        {feed.length === 0 && <div className="card empty"><strong>No posts to show</strong><p className="muted">Try another period, crime type or search.</p></div>}
+        <div className="posts">
+          {feed.slice(0, shown).map((r) => {
+            const t = typeOf(r.type);
+            return (
+              <article key={r.id} className="post card">
+                <div className="row between">
+                  <strong className="post-title">
+                    <span className="dot red" /> {t?.label || r.type}
+                    {t?.permanent && <span className="tag serious">Serious</span>}
+                    {r.mine && <span className="tag mine">Your report</span>}
+                  </strong>
+                  <span className="muted small-text">Posted {timeAgo(r.created_at)}</span>
+                </div>
+                <div className="muted small-text">
+                  Happened {fmtTime(r.occurred_at)}
+                  {r.dist !== null && ` · ${fmtKm(r.dist)} from you`}
+                </div>
+                <p>{r.description}</p>
+                <Attachments files={r.files} urlFor={fileUrl} />
+                <div className="row">
+                  <button className="secondary small" onClick={() => showOnMap(r)}>📍 Show on map</button>
+                </div>
+                {user?.role === "investigator" && !r.mine && (
+                  <details className="contact">
+                    <summary>Contact the reporter</summary>
+                    <ContactBox report={r} />
+                  </details>
+                )}
+              </article>
+            );
+          })}
+        </div>
+        {feed.length > shown && (
+          <div className="center"><button className="secondary" onClick={() => setShown(shown + PAGE)}>Show more posts</button></div>
+        )}
+      </section>
     </div>
   );
 }

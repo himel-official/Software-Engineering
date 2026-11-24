@@ -30,14 +30,14 @@ export default function Register() {
       <h1>Create an account</h1>
       <form onSubmit={submit} className="stack card">
         {error && <p className="error">{error}</p>}
-        <label>Username <small>(shown only to you and admins, never on reports)</small>
+        <label>Username <small>(shown only to you and admins, never on reports. Others may use the same one)</small>
           <input name="username" value={form.username} onChange={set} autoComplete="username" />
         </label>
-        <label>Email <input name="email" type="email" value={form.email} onChange={set} autoComplete="email" /></label>
+        <label>Email <small>(you log in with it, one account per email)</small> <input name="email" type="email" value={form.email} onChange={set} autoComplete="email" /></label>
         <label>Password <small>(at least 10 characters)</small>
           <input name="password" type="password" value={form.password} onChange={set} autoComplete="new-password" />
         </label>
-        <label>National ID (NID) number
+        <label>National ID (NID) number <small>(one account per NID)</small>
           <input name="nid" value={form.nid} onChange={set} inputMode="numeric" autoComplete="off" />
         </label>
 
@@ -47,6 +47,11 @@ export default function Register() {
             <li>Your NID is encrypted and is used only to make sure each person has one account.</li>
             <li>The public map and investigators never see your name, email, username or NID. Reports are shown without any identity.</li>
             <li>Site administrators can see account details when needed. Every time they look, it is written to a permanent log.</li>
+            <li>
+              <strong>Location:</strong> while SafeVoice is open, your device location is sent to the site (only the latest point is kept) so we can alert you
+              to crimes within 5 km. Administrators can see your last recorded location, and every look is written to the permanent log. You can turn this off in
+              your browser's location settings, but then you will not get nearby alerts.
+            </li>
           </ul>
         </div>
 

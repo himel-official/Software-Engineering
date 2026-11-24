@@ -3,12 +3,12 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
 const multer = require("multer");
-const fs = require("fs");
 const path = require("path");
 const rateLimit = require("express-rate-limit");
 
 const db = require("../db");
 const { ID_DIR } = require("../config");
+const storage = require("../storage");
 const { encrypt, encryptBuffer, blindIndex } = require("../crypto");
 const { logAdmin } = require("../audit");
 const { clientIp } = require("../ip");
@@ -27,16 +27,16 @@ const authLimiter = rateLimit({
 });
 
 // ---------- helpers ----------
-function startSession(res, user) {
+async function startSession(res, user) {
   const hours = user.role === "admin" ? 2 : 8; // admins get shorter sessions
   const sid = crypto.randomUUID();
   const now = Date.now();
-  db.prepare("INSERT INTO sessions (id, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)").run(
+  await db.run("INSERT INTO sessions (id, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)", [
     sid,
     user.id,
     new Date(now).toISOString(),
-    new Date(now + hours * 3600 * 1000).toISOString()
-  );
+    new Date(now + hours * 3600 * 1000).toISOString(),
+  ]);
   const token = jwt.sign({ sid }, process.env.JWT_SECRET, { expiresIn: `${hours}h` });
   res.cookie(COOKIE, token, {
     httpOnly: true, // JavaScript in the page cannot read this cookie
@@ -47,17 +47,18 @@ function startSession(res, user) {
   });
 }
 
-function publicUser(u) {
+async function publicUser(u) {
   const out = { id: u.id, username: u.username, email: u.email, role: u.role };
-  if (u.role === "investigator") out.investigator = investigatorInfo(u.id);
+  if (u.role === "investigator") out.investigator = await investigatorInfo(u.id);
   return out;
 }
 
 function dbError(e, res) {
-  const m = String(e.message || "");
-  if (m.includes("users.nid_hash")) return res.status(409).json({ error: "An account with this NID already exists" });
-  if (m.includes("users.username")) return res.status(409).json({ error: "That username is taken" });
-  if (m.includes("users.email")) return res.status(409).json({ error: "That email is already registered" });
+  // 23505 = PostgreSQL "unique violation"; e.constraint says which rule was broken
+  if (e.code === "23505") {
+    if (e.constraint === "users_nid_hash_key") return res.status(409).json({ error: "An account with this NID already exists" });
+    if (e.constraint === "users_email_key") return res.status(409).json({ error: "That email is already registered" });
+  }
   console.error(e);
   return res.status(500).json({ error: "Server error" });
 }
@@ -88,12 +89,13 @@ router.post("/register", authLimiter, async (req, res) => {
   try {
     const nid = v.cleanNid(req.body.nid);
     const hash = await bcrypt.hash(req.body.password, 12);
-    const r = db
-      .prepare("INSERT INTO users (username, email, password_hash, role, nid_enc, nid_hash) VALUES (?, ?, ?, 'user', ?, ?)")
-      .run(req.body.username.trim(), req.body.email.trim().toLowerCase(), hash, encrypt(nid), blindIndex(nid));
-    const user = db.prepare("SELECT * FROM users WHERE id = ?").get(r.lastInsertRowid);
-    startSession(res, user);
-    res.status(201).json({ user: publicUser(user) });
+    const id = await db.insert(
+      "INSERT INTO users (username, email, password_hash, role, nid_enc, nid_hash) VALUES (?, ?, ?, 'user', ?, ?)",
+      [req.body.username.trim(), req.body.email.trim().toLowerCase(), hash, encrypt(nid), blindIndex(nid)]
+    );
+    const user = await db.get("SELECT * FROM users WHERE id = ?", [id]);
+    await startSession(res, user);
+    res.status(201).json({ user: await publicUser(user) });
   } catch (e) {
     dbError(e, res);
   }
@@ -118,40 +120,34 @@ router.post("/register-investigator", authLimiter, uploadIdCard, async (req, res
   const mime = detectType(req.file.buffer);
   if (!mime) return res.status(400).json({ error: "ID card must be a JPG, PNG or PDF file" });
 
-  // Save the ID card ENCRYPTED on disk under a random name
+  // Save the ID card ENCRYPTED in the private Supabase Storage bucket under a random name
   const fileName = crypto.randomBytes(24).toString("hex") + ".enc";
-  const filePath = path.join(ID_DIR, fileName);
-  fs.writeFileSync(filePath, encryptBuffer(req.file.buffer));
+  await storage.save(ID_DIR, fileName, encryptBuffer(req.file.buffer), "application/octet-stream");
 
   try {
     const nid = v.cleanNid(b.nid);
     const hash = await bcrypt.hash(b.password, 12);
     const details = encrypt(JSON.stringify({ fullName, organization, jobTitle, workIdNumber, about }));
 
-    db.exec("BEGIN");
-    let userId;
-    try {
-      const r = db
-        .prepare("INSERT INTO users (username, email, password_hash, role, nid_enc, nid_hash) VALUES (?, ?, ?, 'investigator', ?, ?)")
-        .run(b.username.trim(), b.email.trim().toLowerCase(), hash, encrypt(nid), blindIndex(nid));
-      userId = r.lastInsertRowid;
-      db.prepare("INSERT INTO investigator_profiles (user_id, job_type, details_enc, id_card_file, id_card_mime) VALUES (?, ?, ?, ?, ?)").run(
-        userId,
+    const userId = await db.tx(async (t) => {
+      const id = await t.insert(
+        "INSERT INTO users (username, email, password_hash, role, nid_enc, nid_hash) VALUES (?, ?, ?, 'investigator', ?, ?)",
+        [b.username.trim(), b.email.trim().toLowerCase(), hash, encrypt(nid), blindIndex(nid)]
+      );
+      await t.run("INSERT INTO investigator_profiles (user_id, job_type, details_enc, id_card_file, id_card_mime) VALUES (?, ?, ?, ?, ?)", [
+        id,
         b.jobType,
         details,
         fileName,
-        mime
-      );
-      db.exec("COMMIT");
-    } catch (e) {
-      db.exec("ROLLBACK");
-      throw e;
-    }
-    const user = db.prepare("SELECT * FROM users WHERE id = ?").get(userId);
-    startSession(res, user);
-    res.status(201).json({ user: publicUser(user) });
+        mime,
+      ]);
+      return id;
+    });
+    const user = await db.get("SELECT * FROM users WHERE id = ?", [userId]);
+    await startSession(res, user);
+    res.status(201).json({ user: await publicUser(user) });
   } catch (e) {
-    fs.rmSync(filePath, { force: true }); // registration failed: remove the saved file
+    await storage.remove(ID_DIR, fileName); // registration failed: remove the saved file
     dbError(e, res);
   }
 });
@@ -159,36 +155,39 @@ router.post("/register-investigator", authLimiter, uploadIdCard, async (req, res
 // ---------- login ----------
 const DUMMY_HASH = bcrypt.hashSync("not-a-real-password", 12);
 
+// Usernames are NOT unique (two people may pick the same one), so people log in with their EMAIL.
 router.post("/login", authLimiter, async (req, res) => {
-  const { identifier, password } = req.body;
-  if (typeof identifier !== "string" || typeof password !== "string") {
-    return res.status(400).json({ error: "Username/email and password are required" });
+  const body = req.body || {};
+  const email = body.email ?? body.identifier;
+  const password = body.password;
+  if (typeof email !== "string" || typeof password !== "string") {
+    return res.status(400).json({ error: "Email and password are required" });
   }
-  const u = db.prepare("SELECT * FROM users WHERE username = ? OR email = ?").get(identifier.trim(), identifier.trim());
+  const u = await db.get("SELECT * FROM users WHERE lower(email) = ?", [email.trim().toLowerCase()]);
   // Always run a password check, even for unknown users, so response time doesn't reveal which accounts exist
   const ok = await bcrypt.compare(password, u ? u.password_hash : DUMMY_HASH);
 
   if (!u || !ok) {
     if (u && u.role === "admin") {
-      logAdmin({ admin: u, action: "ADMIN_LOGIN_FAILED", message: `Failed login attempt for ${u.username}`, ip: clientIp(req) });
+      await logAdmin({ admin: u, action: "ADMIN_LOGIN_FAILED", message: `Failed login attempt for ${u.username}`, ip: clientIp(req) });
     }
-    return res.status(401).json({ error: "Wrong username/email or password" });
+    return res.status(401).json({ error: "Wrong email or password" });
   }
   if (!u.is_active) return res.status(403).json({ error: "This account has been disabled" });
 
-  startSession(res, u);
+  await startSession(res, u);
   if (u.role === "admin") {
-    logAdmin({ admin: u, action: "ADMIN_LOGIN", message: `${u.username} logged in`, ip: clientIp(req) });
+    await logAdmin({ admin: u, action: "ADMIN_LOGIN", message: `${u.username} logged in`, ip: clientIp(req) });
   }
-  res.json({ user: publicUser(u) });
+  res.json({ user: await publicUser(u) });
 });
 
 // ---------- logout ----------
-router.post("/logout", (req, res) => {
+router.post("/logout", async (req, res) => {
   if (req.user) {
-    db.prepare("UPDATE sessions SET ended_at = ? WHERE id = ?").run(new Date().toISOString(), req.sessionId);
+    await db.run("UPDATE sessions SET ended_at = ? WHERE id = ?", [new Date().toISOString(), req.sessionId]);
     if (req.user.role === "admin") {
-      logAdmin({ admin: req.user, action: "ADMIN_LOGOUT", message: `${req.user.username} logged out`, ip: clientIp(req) });
+      await logAdmin({ admin: req.user, action: "ADMIN_LOGOUT", message: `${req.user.username} logged out`, ip: clientIp(req) });
     }
   }
   res.clearCookie(COOKIE, { path: "/" });
@@ -196,8 +195,8 @@ router.post("/logout", (req, res) => {
 });
 
 // ---------- who am I ----------
-router.get("/me", (req, res) => {
-  res.json({ user: req.user ? publicUser(req.user) : null });
+router.get("/me", async (req, res) => {
+  res.json({ user: req.user ? await publicUser(req.user) : null });
 });
 
 module.exports = router;

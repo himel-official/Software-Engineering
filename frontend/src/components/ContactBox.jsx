@@ -3,14 +3,14 @@ import { Link } from "react-router-dom";
 import { useAuth } from "../AuthContext";
 import { api } from "../api";
 
-// "Contact reporter" box. Shows nothing unless the viewer is an investigator.
+// "Contact reporter" box. Shows nothing unless the viewer is an investigator (and the report is not their own).
 export default function ContactBox({ report }) {
   const { user } = useAuth();
   const [text, setText] = useState("");
   const [sent, setSent] = useState(false);
   const [error, setError] = useState("");
 
-  if (user?.role !== "investigator") return null;
+  if (user?.role !== "investigator" || report.mine) return null;
   if (user.investigator?.status !== "verified") {
     return <p className="note">Your ID is not verified yet. You can contact reporters once an admin verifies you.</p>;
   }

@@ -10,10 +10,11 @@ function computeHash(prevHash, r) {
 }
 
 // admin: {id, username}   target (optional): {type, id, username}
-function logAdmin({ admin, action, target, message, ip }) {
-  db.exec("BEGIN IMMEDIATE");
-  try {
-    const last = db.prepare("SELECT hash FROM audit_logs ORDER BY id DESC LIMIT 1").get();
+async function logAdmin({ admin, action, target, message, ip }) {
+  await db.tx(async (t) => {
+    // Only one entry at a time may extend the chain (replaces SQLite's "BEGIN IMMEDIATE")
+    await t.get("SELECT pg_advisory_xact_lock(727001)");
+    const last = await t.get("SELECT hash FROM audit_logs ORDER BY id DESC LIMIT 1");
     const prevHash = last ? last.hash : "GENESIS";
     const row = {
       ts: new Date().toISOString(),
@@ -27,19 +28,16 @@ function logAdmin({ admin, action, target, message, ip }) {
       ip: ip || null,
     };
     const hash = computeHash(prevHash, row);
-    db.prepare(
+    await t.run(
       `INSERT INTO audit_logs (ts, admin_id, admin_username, action, target_type, target_id, target_username, message, ip, prev_hash, hash)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?)`
-    ).run(row.ts, row.admin_id, row.admin_username, row.action, row.target_type, row.target_id, row.target_username, row.message, row.ip, prevHash, hash);
-    db.exec("COMMIT");
-  } catch (e) {
-    db.exec("ROLLBACK");
-    throw e;
-  }
+       VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+      [row.ts, row.admin_id, row.admin_username, row.action, row.target_type, row.target_id, row.target_username, row.message, row.ip, prevHash, hash]
+    );
+  });
 }
 
-function verifyChain() {
-  const rows = db.prepare("SELECT * FROM audit_logs ORDER BY id ASC").all();
+async function verifyChain() {
+  const rows = await db.all("SELECT * FROM audit_logs ORDER BY id ASC");
   let prev = "GENESIS";
   for (const r of rows) {
     if (r.prev_hash !== prev || computeHash(prev, r) !== r.hash) {

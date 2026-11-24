@@ -1,14 +1,17 @@
-import { Fragment, useEffect, useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import L from "leaflet";
-import { MapContainer, TileLayer, CircleMarker, Circle, Marker, Tooltip, Popup, useMapEvents, useMap } from "react-leaflet";
+import { MapContainer, TileLayer, CircleMarker, Marker, Tooltip, Popup, useMapEvents, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import { MAP_CENTER, MAP_ZOOM } from "../config";
 import { dotOpacity } from "../utils";
 
-// Pulsing blue dot for the visitor's current location (styled in index.css)
+// Every crime is a plain RED dot (no halo, no extra radius).
+const RED = "#dc2626";
+
+// Blue dot for the visitor's current location (styled in index.css)
 const meIcon = L.divIcon({
   className: "me-marker",
-  html: '<span class="me-pulse"></span><span class="me-dot"></span>',
+  html: '<span class="me-dot"></span>',
   iconSize: [22, 22],
   iconAnchor: [11, 11],
 });
@@ -26,10 +29,9 @@ function FlyTo({ target }) {
   return null;
 }
 
-// Dotted heatmap: every report is a dot with a soft halo.
-// Colour = crime type. Opacity = how recent (permanent crimes never fade).
-// me = {lat, lng, accuracy} -> blue "You are here" marker.  highlightId -> ring around one report.
-export default function CrimeMap({ reports = [], meta, onMapClick, picked, renderPopup, flyTo, me, highlightId, height = "100%" }) {
+// Every report is a red dot. Opacity = how recent (serious crimes such as murder never fade).
+// me = {lat, lng} -> blue marker.  highlightId -> that report's dot is drawn bigger with a dark outline.
+export default function CrimeMap({ reports = [], meta, onMapClick, picked, renderPopup, flyTo, me, meLabel = "You are here", highlightId, height = "100%" }) {
   const types = useMemo(() => Object.fromEntries((meta?.crimeTypes || []).map((t) => [t.key, t])), [meta]);
 
   return (
@@ -43,36 +45,25 @@ export default function CrimeMap({ reports = [], meta, onMapClick, picked, rende
           const t = types[r.type];
           if (!t) return null;
           const op = dotOpacity(r, t, meta);
+          const hl = highlightId === r.id;
           return (
-            <Fragment key={r.id}>
-              <CircleMarker center={[r.lat, r.lng]} radius={18} pathOptions={{ stroke: false, fillColor: t.color, fillOpacity: op * 0.22, interactive: false }} />
-              <CircleMarker
-                center={[r.lat, r.lng]}
-                radius={7}
-                pathOptions={{ color: "#ffffff", weight: t.permanent ? 2 : 0, opacity: op, fillColor: t.color, fillOpacity: op }}
-              >
-                {renderPopup && <Popup>{renderPopup(r, t)}</Popup>}
-              </CircleMarker>
-              {highlightId === r.id && (
-                <CircleMarker center={[r.lat, r.lng]} radius={15} pathOptions={{ color: "#111827", weight: 2, dashArray: "4 3", fill: false, interactive: false }} />
-              )}
-            </Fragment>
+            <CircleMarker
+              key={r.id}
+              center={[r.lat, r.lng]}
+              radius={hl ? 10 : 7}
+              pathOptions={{ color: hl ? "#111827" : RED, weight: hl ? 2 : 0, opacity: 1, fillColor: RED, fillOpacity: op }}
+            >
+              {renderPopup && <Popup>{renderPopup(r, t)}</Popup>}
+            </CircleMarker>
           );
         })}
 
-      {picked && (
-        <CircleMarker center={[picked.lat, picked.lng]} radius={10} pathOptions={{ color: "#111827", weight: 3, fillColor: "#ffffff", fillOpacity: 0.9 }} />
-      )}
+      {picked && <CircleMarker center={[picked.lat, picked.lng]} radius={8} pathOptions={{ color: "#ffffff", weight: 2, fillColor: RED, fillOpacity: 1 }} />}
 
       {me && (
-        <>
-          {me.accuracy > 0 && me.accuracy < 3000 && (
-            <Circle center={[me.lat, me.lng]} radius={me.accuracy} pathOptions={{ color: "#2563eb", weight: 1, fillColor: "#2563eb", fillOpacity: 0.08, interactive: false }} />
-          )}
-          <Marker position={[me.lat, me.lng]} icon={meIcon} keyboard={false}>
-            <Tooltip permanent direction="top" offset={[0, -12]}>You are here</Tooltip>
-          </Marker>
-        </>
+        <Marker position={[me.lat, me.lng]} icon={meIcon} keyboard={false}>
+          <Tooltip permanent direction="top" offset={[0, -12]}>{meLabel}</Tooltip>
+        </Marker>
       )}
     </MapContainer>
   );

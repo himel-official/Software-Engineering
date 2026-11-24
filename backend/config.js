@@ -1,22 +1,20 @@
-const fs = require("fs");
-const path = require("path");
-
 // ---------- Crime types ----------
 // permanent: true  => the dot never fades (serious crimes)
-// Colours are used by the map legend and dots.
+// Every type uses the same red on purpose (SafeVoice shows all crimes as red dots).
+const RED = "#dc2626"; // every crime dot is red
 const CRIME_TYPES = [
-  { key: "theft",      label: "Theft",                  color: "#8b5cf6", permanent: false }, // purple
-  { key: "mugging",    label: "Mugging / Snatching",    color: "#ec4899", permanent: false }, // pink
-  { key: "burglary",   label: "Burglary",               color: "#f97316", permanent: false }, // orange
-  { key: "assault",    label: "Assault",                color: "#ef4444", permanent: false }, // red
-  { key: "vandalism",  label: "Vandalism",              color: "#eab308", permanent: false }, // yellow
-  { key: "drugs",      label: "Drug activity",          color: "#22c55e", permanent: false }, // green
-  { key: "harassment", label: "Harassment / Stalking",  color: "#14b8a6", permanent: false }, // teal
-  { key: "fraud",      label: "Fraud / Scam",           color: "#0ea5e9", permanent: false }, // sky blue
-  { key: "arson",      label: "Arson",                  color: "#b45309", permanent: false }, // brown
-  { key: "kidnapping", label: "Kidnapping",             color: "#1e3a8a", permanent: true  }, // navy
-  { key: "murder",     label: "Murder",                 color: "#7f1d1d", permanent: true  }, // maroon
-  { key: "rape",       label: "Rape / Sexual assault",  color: "#111827", permanent: true  }, // near black
+  { key: "theft",      label: "Theft",                  color: RED, permanent: false },
+  { key: "mugging",    label: "Mugging / Snatching",    color: RED, permanent: false },
+  { key: "burglary",   label: "Burglary",               color: RED, permanent: false },
+  { key: "assault",    label: "Assault",                color: RED, permanent: false },
+  { key: "vandalism",  label: "Vandalism",              color: RED, permanent: false },
+  { key: "drugs",      label: "Drug activity",          color: RED, permanent: false },
+  { key: "harassment", label: "Harassment / Stalking",  color: RED, permanent: false },
+  { key: "fraud",      label: "Fraud / Scam",           color: RED, permanent: false },
+  { key: "arson",      label: "Arson",                  color: RED, permanent: false },
+  { key: "kidnapping", label: "Kidnapping",             color: RED, permanent: true  },
+  { key: "murder",     label: "Murder",                 color: RED, permanent: true  },
+  { key: "rape",       label: "Rape / Sexual assault",  color: RED, permanent: true  },
 ];
 
 // Ordinary crime dots fade from fully visible to MIN_OPACITY over FADE_DAYS.
@@ -26,8 +24,24 @@ const MIN_OPACITY = 0.08;
 // National ID number: digits only, 8-20 long. Change this if your country's format is stricter.
 const NID_RE = /^\d{8,20}$/;
 
-// Where uploaded (encrypted) investigator ID cards are stored.
-const ID_DIR = process.env.ID_STORAGE_DIR || path.join(__dirname, "storage", "id-cards");
-fs.mkdirSync(ID_DIR, { recursive: true });
+// ---------- file storage ----------
+// Files live in a private Supabase Storage bucket (see storage.js). These are the folder names inside the bucket.
+const ID_DIR = "id-cards";          // investigator ID cards (encrypted)
+const CHAT_FILE_DIR = "chat-files"; // private chat attachments (encrypted)
+const REPORT_FILE_DIR = "report-files"; // public crime-report attachments (plain: they are public anyway)
 
-module.exports = { CRIME_TYPES, FADE_DAYS, MIN_OPACITY, NID_RE, ID_DIR };
+// ---------- uploads ----------
+const MAX_FILE_MB = 25;          // per file (chat attachment or report attachment)
+const MAX_REPORT_FILES = 5;      // attachments per crime report
+
+// ---------- nearby-crime notifications ----------
+const NOTIFY_RADIUS_KM = 5;               // notify users whose last location is within this distance of a new crime
+const NOTIFY_LOCATION_MAX_AGE_HOURS = 72; // ignore locations older than this when a report is posted
+const NOTIFY_CATCHUP_HOURS = 24;          // when a user's location updates, also alert them about crimes posted in the last X hours nearby
+
+module.exports = {
+  CRIME_TYPES, FADE_DAYS, MIN_OPACITY, NID_RE,
+  ID_DIR, CHAT_FILE_DIR, REPORT_FILE_DIR,
+  MAX_FILE_MB, MAX_REPORT_FILES,
+  NOTIFY_RADIUS_KM, NOTIFY_LOCATION_MAX_AGE_HOURS, NOTIFY_CATCHUP_HOURS,
+};
