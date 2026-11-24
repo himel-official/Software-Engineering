@@ -73,4 +73,7 @@ require("./storage")
   .then(() => console.log(`Connected to Supabase Storage (private bucket "${require("./storage").BUCKET}").`))
   .catch((e) => console.error("\n!!! Supabase Storage problem:", e.message, "\n    Check SUPABASE_URL and SUPABASE_SERVICE_KEY in backend/.env\n"));
 
-app.listen(PORT, () => console.log(`SafeVoice server running on http://localhost:${PORT}`));
+if (require.main === module) {
+  app.listen(PORT, () => console.log(`SafeVoice server running on http://localhost:${PORT}`));
+}
+module.exports = app;
